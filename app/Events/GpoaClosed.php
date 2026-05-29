@@ -2,35 +2,58 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
-use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
+use App\Models\Gpoa;
 use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class GpoaClosed
+class GpoaClosed implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
+
+    public Gpoa $gpoa;
 
     /**
      * Create a new event instance.
      */
-    public function __construct()
+    public function __construct(Gpoa $gpoa)
     {
-        //
+        $this->gpoa = $gpoa;
     }
 
     /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
+     * Secure channel for GPOA system events
      */
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('channel-name'),
+            new PrivateChannel('gpoa'),
+        ];
+    }
+
+    /**
+     * Frontend event name
+     */
+    public function broadcastAs(): string
+    {
+        return 'gpoa.closed';
+    }
+
+    /**
+     * UI-ready payload
+     */
+    public function broadcastWith(): array
+    {
+        return [
+            'id' => $this->gpoa->id,
+            'title' => $this->gpoa->title ?? null,
+
+            'status' => 'closed',
+            'closed_at' => now(),
+
+            'updated_at' => $this->gpoa->updated_at,
         ];
     }
 }
