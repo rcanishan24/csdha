@@ -1,131 +1,204 @@
-// app.js
-
 import.meta.glob([
     "../images/**",
     "../fonts/**",
 ]);
+
 import "./bootstrap";
 import QrScanner from "qr-scanner/qr-scanner.legacy.min.js";
 
+/**
+ * =========================
+ * STATE MANAGEMENT
+ * =========================
+ */
 let CURRENT_REQUEST = null;
 let QR_SCANNER = null;
+let SCANNER_ACTIVE = false;
 
+/**
+ * =========================
+ * UTILITIES
+ * =========================
+ */
 function getCookie(name) {
-	return document.cookie.split('; ')
-		.find(row => row.startsWith(name + '='))?.split('=')[1];
+    return document.cookie
+        .split("; ")
+        .find(row => row.startsWith(name + "="))
+        ?.split("=")[1];
 }
 
+/**
+ * Prevents duplicate API calls + improves scan stability
+ */
 async function storeAttendance(token) {
-	var timezone
     if (CURRENT_REQUEST) {
         const apiResponse = await CURRENT_REQUEST;
         return apiResponse.status;
     }
+
     const eventField = document.querySelector("#event");
+    if (!eventField?.value) return 400;
+
+    const timezone = getCookie("timezone") || "UTC";
+
     try {
-	timezone = getCookie('timezone');
-	if (!timezone) timezone = 'UTC';
-        CURRENT_REQUEST = axios.post("/api/attendance/" + eventField.value, {
-            token: token,
-            timezone: timezone
+        CURRENT_REQUEST = axios.post(`/api/attendance/${eventField.value}`, {
+            token,
+            timezone
         });
-        const apiResponse =  await CURRENT_REQUEST;
+
+        const apiResponse = await CURRENT_REQUEST;
         return apiResponse.status;
+
+    } catch (err) {
+        console.error("Attendance error:", err);
+        return 500;
+
     } finally {
         CURRENT_REQUEST = null;
     }
 }
 
-function showQrScannerStatus(type) {
+/**
+ * =========================
+ * UI STATE HANDLER
+ * (This is where your "modern vibe" comes alive)
+ * =========================
+ */
+function setScannerStatus(type) {
     const idScanner = document.getElementById("id-scanner");
     if (!idScanner) return;
+
     const indicator = idScanner.querySelector(".indicator");
-    const statusVal = JSON.parse(idScanner.querySelector(".status-values")
-        .textContent);
-    const timeout = indicator.querySelector(".timeout");
-    const statusText = indicator.querySelector(".status .text");
+    const statusData = JSON.parse(
+        idScanner.querySelector(".status-values")?.textContent || "{}"
+    );
+
+    const timeout = indicator?.querySelector(".timeout");
+    const statusText = indicator?.querySelector(".status .text");
+
+    if (!indicator || !timeout || !statusText || !statusData[type]) return;
+
+    // force reflow for smooth animation reset
     void indicator.offsetWidth;
-    indicator.classList.value = "indicator " + statusVal[type].class;
-    statusText.textContent = statusVal[type].text;
-    if (["success", "failure"].includes(type)) {
-        timeout.addEventListener("animationend", function callback() {
-            indicator.classList.remove(statusVal[type].class);
-            timeout.removeEventListener("animationend", callback);
-            void indicator.offsetWidth;
-            indicator.classList.value = "indicator " + statusVal.idle.class;
-            statusText.textContent = statusVal.idle.text;
+
+    indicator.className = `indicator ${statusData[type].class}`;
+    statusText.textContent = statusData[type].text;
+
+    // auto reset after success/failure (clean UX loop)
+    if (["success", "failure", "forbidden"].includes(type)) {
+        timeout.addEventListener("animationend", function reset() {
+            indicator.className = `indicator ${statusData.idle.class}`;
+            statusText.textContent = statusData.idle.text;
+            timeout.removeEventListener("animationend", reset);
         });
     }
 }
 
+/**
+ * =========================
+ * QR SCANNER CONTROL
+ * =========================
+ */
 function startQrScanner() {
-    showQrScannerStatus("idle");
-    const videoEl = document.querySelector('#id-scanner .video');
-    if (!videoEl) return;
+    if (SCANNER_ACTIVE) return;
+
+    setScannerStatus("idle");
+
+    const videoEl = document.querySelector("#id-scanner .video");
     const idScanner = document.getElementById("id-scanner");
+
+    if (!videoEl || !idScanner) return;
+
     idScanner.hidden = false;
-    QR_SCANNER = QR_SCANNER || new QrScanner(videoEl, async (result) => {
-        showQrScannerStatus("processing");
-        const statusCode = await storeAttendance(result.data);
-        switch (statusCode) {
-        case 200:
-            showQrScannerStatus("success");
-            break;
-        case 403:
-            showQrScannerStatus("forbidden");
-            break;
-        case 404:
-            showQrScannerStatus("failure");
-            break;
-        }
-    }, {
-        returnDetailedScanResult: true
-    });
+
+    if (!QR_SCANNER) {
+        QR_SCANNER = new QrScanner(videoEl, async (result) => {
+            if (!result?.data) return;
+
+            SCANNER_ACTIVE = true;
+
+            setScannerStatus("processing");
+
+            const statusCode = await storeAttendance(result.data);
+
+            switch (statusCode) {
+                case 200:
+                    setScannerStatus("success");
+                    break;
+                case 403:
+                    setScannerStatus("forbidden");
+                    break;
+                case 404:
+                    setScannerStatus("failure");
+                    break;
+                default:
+                    setScannerStatus("failure");
+            }
+
+            SCANNER_ACTIVE = false;
+        }, {
+            returnDetailedScanResult: true
+        });
+    }
+
     QR_SCANNER.start();
 }
 
+/**
+ * Stops scanner cleanly (prevents camera leaks)
+ */
 function stopQrScanner() {
     const idScanner = document.getElementById("id-scanner");
-    if (!idScanner) return;
-    idScanner.hidden = true;
+    if (idScanner) idScanner.hidden = true;
+
     if (QR_SCANNER) {
         QR_SCANNER.stop();
     }
+
+    SCANNER_ACTIVE = false;
 }
 
+/**
+ * =========================
+ * MAIN FEATURE INIT
+ * =========================
+ */
 function activateAttendanceRecorder() {
-    let mainEl;
-    const mainPage = document.querySelector(".main-content.attendance "
-        + ".article");
+    const mainPage = document.querySelector(
+        ".main-content.attendance .article"
+    );
+
     if (!mainPage) return;
-    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
-        const el = document.createElement("p");
-        el.textContent = "It looks like camera is not supported in this web "
-            + "browser.";
-        mainPage.append(el);
+
+    const supportsCamera = navigator.mediaDevices?.getUserMedia;
+
+    if (!supportsCamera) {
+        const warning = document.createElement("div");
+        warning.className = "alert alert-warning";
+        warning.textContent =
+            "Camera is not supported in this browser. Please use a modern device.";
+        mainPage.append(warning);
         return;
     }
-    const mainElTemp = document.querySelector('.attendance #scanner-feature');
-    if (!mainElTemp) {
-        return;
-    } else {
-        mainEl = mainElTemp.content.cloneNode(1);
-    }
-    const idScanner = mainEl.getElementById("id-scanner");
-    if (idScanner) {
-        idScanner.hidden = true;
-    }
-    mainElTemp.before(mainEl);
-    const selectEventEl = mainPage.querySelector("select#event");
-    if (selectEventEl) {
-        selectEventEl.addEventListener("change", (event) => {
-            if (event.target.value) {
-                startQrScanner();
-            }
+
+    const template = document.querySelector(".attendance #scanner-feature");
+
+    if (!template) return;
+
+    const clone = template.content.cloneNode(true);
+    template.before(clone);
+
+    const selectEvent = mainPage.querySelector("select#event");
+
+    if (selectEvent) {
+        selectEvent.addEventListener("change", (e) => {
+            if (e.target.value) startQrScanner();
             else stopQrScanner();
         });
         return;
     }
+
     startQrScanner();
 }
 
