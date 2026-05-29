@@ -9,15 +9,48 @@ use Illuminate\View\Component;
 class Content extends Component
 {
     /**
+     * BACK NAVIGATION
+     */
+    public string $backRoute;
+    public string $backName;
+    public array $routeParams;
+
+    /**
+     * UI ENHANCEMENTS (NEW)
+     */
+    public ?string $title;
+    public ?string $subtitle;
+    public ?string $icon;
+    public bool $showBackButton;
+    public bool $compact;
+
+    /**
      * Create a new component instance.
      */
     public function __construct(
-        public string $backRoute,
-        public string $backName,
-        public array $routeParams = []
-    )
-    {
-        //
+        string $backRoute,
+        string $backName,
+
+        array $routeParams = [],
+
+        // ✨ NEW UI FEATURES
+        ?string $title = null,
+        ?string $subtitle = null,
+        ?string $icon = null,
+
+        bool $showBackButton = true,
+        bool $compact = false
+    ) {
+        $this->backRoute = $backRoute;
+        $this->backName = $backName;
+        $this->routeParams = $routeParams;
+
+        $this->title = $title;
+        $this->subtitle = $subtitle;
+        $this->icon = $icon;
+
+        $this->showBackButton = $showBackButton;
+        $this->compact = $compact;
     }
 
     /**
