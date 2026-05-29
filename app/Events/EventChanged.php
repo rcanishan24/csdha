@@ -2,36 +2,61 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
-use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
+use App\Models\Event as SystemEvent;
 use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use App\Models\Event;
 
-class EventChanged
+class EventChanged implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
+
+    public SystemEvent $event;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(public Event $event)
+    public function __construct(SystemEvent $event)
     {
-        //
+        $this->event = $event;
     }
 
     /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
+     * Broadcast channel (secured + role-ready)
+     * You can later extend this to:
+     * - admin-only channels
+     * - member-specific feeds
      */
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('channel-name'),
+            new PrivateChannel('events'),
+        ];
+    }
+
+    /**
+     * Custom event name for frontend listeners
+     */
+    public function broadcastAs(): string
+    {
+        return 'event.changed';
+    }
+
+    /**
+     * Payload sent to frontend (UI-ready data)
+     */
+    public function broadcastWith(): array
+    {
+        return [
+            'id' => $this->event->id,
+            'title' => $this->event->title ?? null,
+            'description' => $this->event->description ?? null,
+            'date' => $this->event->date ?? null,
+            'location' => $this->event->location ?? null,
+            'status' => $this->event->status ?? null,
+            'updated_at' => $this->event->updated_at,
         ];
     }
 }
